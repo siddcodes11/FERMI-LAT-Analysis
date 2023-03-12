@@ -1,0 +1,98 @@
+!wget https://fermi.gsfc.nasa.gov/ssc/data/analysis/scitools/data/pyLikelihood/L1504241622054B65347F25_PH00.fits
+!wget https://fermi.gsfc.nasa.gov/ssc/data/analysis/scitools/data/pyLikelihood/L1504241622054B65347F25_PH01.fits
+!wget https://fermi.gsfc.nasa.gov/ssc/data/analysis/scitools/data/pyLikelihood/L1504241622054B65347F25_SC00.fits
+!mkdir example_1
+!mv L1504241622054B65347F25_PH00.fits ./example_1
+!mv L1504241622054B65347F25_PH01.fits ./example_1
+!mv L1504241622054B65347F25_SC00.fits ./example_1
+!ls ./example_1
+!ls ./example_1/*_PH* > ./example_1/example_1_events_analysis.list
+!cat ./example_1/example_1_events_analysis.list
+import gt_apps as my_apps
+my_apps.filter['evclass'] = 128
+my_apps.filter['evtype'] = 3
+my_apps.filter['ra'] = 238.929
+my_apps.filter['dec'] = 11.1901
+my_apps.filter['rad'] = 10
+my_apps.filter['emin'] = 100
+my_apps.filter['emax'] = 300000
+my_apps.filter['zmax'] = 90
+my_apps.filter['tmin'] = 239557417
+my_apps.filter['tmax'] = 256970880
+my_apps.filter['infile'] = '@./example_1/example_1_events_analysis.list'
+my_apps.filter['outfile'] = './example_1/example_1_filtered.fits'
+my_apps.filter.run()
+my_apps.maketime['scfile'] = './example_1/L1504241622054B65347F25_SC00.fits'
+my_apps.maketime['filter'] = '(DATA_QUAL>0)&&(LAT_CONFIG==1)'
+my_apps.maketime['roicut'] = 'no'
+my_apps.maketime['evfile'] = './example_1/example_1_filtered.fits'
+my_apps.maketime['outfile'] = './example_1/example_1_filtered_gti.fits'
+my_apps.maketime.run()
+y_apps.expCube['evfile'] = './example_1/example_1_filtered_gti.fits'
+my_apps.expCube['scfile'] = './example_1/L1504241622054B65347F25_SC00.fits'
+my_apps.expCube['outfile'] = './example_1/example_1_ltCube.fits'
+my_apps.expCube['zmax'] = 90
+my_apps.expCube['dcostheta'] = 0.025
+my_apps.expCube['binsz'] = 1
+my_apps.expCube.run()
+my_apps.expMap['evfile'] = './example_1/example_1_filtered_gti.fits'
+my_apps.expMap['scfile'] = './example_1/L1504241622054B65347F25_SC00.fits'
+my_apps.expMap['expcube'] = './example_1/example_1_ltCube.fits'
+my_apps.expMap['outfile'] = './example_1/exxample_1_expMap.fits'
+my_apps.expMap['irfs'] = 'CALDB'
+my_apps.expMap['srcrad'] = 20
+my_apps.expMap['nlong'] = 120
+my_apps.expMap['nlat'] = 120
+my_apps.expMap['nenergies'] = 37
+my_apps.expMap.run()
+from make4FGLxml import *
+#This is make4FGLxml version 01.
+mymodel = srcList('gll_psc_v28.xml','PG1553_filtered_gti.fits','PG1553_model.xml')
+mymodel.makeModel('gll_iem_v07.fits', 'gll_iem_v07', 'iso_P8R3_SOURCE_V3_v1.txt', 'iso_P8R3_SOURCE_V3_v1')
+#Creating file and adding sources from 4FGL-DR3
+my_apps.diffResps['evfile'] = 'PG1553_filtered_gti.fits'
+my_apps.diffResps['scfile'] = 'PG1553_SC.fits'
+my_apps.diffResps['srcmdl'] = 'PG1553compact_model.xml'
+my_apps.diffResps['irfs'] = 'CALDB'
+my_apps.diffResps.run()
+import pyLikelihood
+from UnbinnedAnalysis import *
+obs = UnbinnedObs('./data/PG1553_filtered_gti.fits','./data/PG1553_SC.fits',expMap='./data/PG1553_expMap.fits', expCube='./data/PG1553_ltCube.fits',irfs='CALDB')
+like = UnbinnedAnalysis(obs,'./data/PG1553compact_model.xml',optimizer='NewMinuit')
+like.tol
+like.tolType
+like.tol = 0.0001
+likeobj = pyLike.NewMinuit(like.logLike)
+like.fit(verbosity=0,covar=True,optObject=likeobj)
+%matplotlib inline
+like.plot()
+print (likeobj.getRetCode())
+import matplotlib.pyplot as plt
+import numpy as np
+E = (like.energies[:-1] + like.energies[1:])/2.
+# The 'energies' array are the endpoints so we take
+# the midpoint of the bins.
+
+plt.figure(figsize=(5,5))
+plt.ylim((0.4,1e4))
+plt.xlim((200,300000))
+sum_model = np.zeros_like(like._srcCnts(like.sourceNames()[0]))
+
+for sourceName in like.sourceNames():
+    sum_model = sum_model + like._srcCnts(sourceName)
+    plt.loglog(E,like._srcCnts(sourceName),label=sourceName[1:])
+
+plt.loglog(E,sum_model,label='Total Model')
+plt.errorbar(E,like._Nobs(),yerr=np.sqrt(like._Nobs()), fmt='o',label='Counts')
+ax = plt.gca()
+box = ax.get_position()
+ax.set_position([box.x0, box.y0, box.width * 0.5, box.height])
+plt.legend(bbox_to_anchor=(1.05, 1), loc=2, borderaxespad=0.)
+plt.show()
+resid = (like._Nobs() - sum_model)/sum_model
+resid_err = (np.sqrt(like._Nobs())/sum_model)
+plt.figure(figsize=(9,9))
+plt.xscale('log')
+plt.errorbar(E,resid,yerr=resid_err,fmt='o')
+plt.axhline(0.0,ls=':')
+plt.show()
